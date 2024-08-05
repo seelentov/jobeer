@@ -1,0 +1,107 @@
+﻿using OpenQA.Selenium.Chrome;
+using Jobber.Services;
+using Jobeer.Services;
+using Jobeer.Models;
+using OpenQA.Selenium.Support.UI;
+using static Jobber.Services.SeleniumFactory;
+using System.Text.Json;
+
+namespace Jobeer.Workers
+{
+    public class HHruSender: IHostedService
+    {
+        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ILogger<HHruSender> _logger;
+        private readonly TelegramService _telegramService;
+        private readonly ChromeDriver _driver;
+        private readonly HHruService _hhruService;
+        private readonly WebDriverWait _wait;
+        private readonly SeleniumOptions _options;
+        private readonly string _pageQuery = "&page=";
+
+        public HHruSender(IServiceScopeFactory scopeFactory, ILogger<HHruSender> logger, SeleniumFactory seleniumFactory, HHruService hhruService, TelegramService telegramService)
+        {
+            _scopeFactory = scopeFactory;
+            _telegramService = telegramService;
+            _logger = logger;
+            _hhruService = hhruService;
+            _driver = seleniumFactory.Get();
+
+            _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(10));
+
+            _options = new SeleniumOptions()
+            {
+                wait = _wait,
+                driver = _driver
+            };
+        }
+
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+
+            _ = Task.Run(async () =>
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        using (var scope = _scopeFactory.CreateScope())
+                        {
+                            var searchModelsService = scope.ServiceProvider.GetRequiredService<SearchModelsService>();
+
+                            var searchModels = (await searchModelsService.GetRange(s => s.Type == SearchModelType.HHru)).ToList();
+
+                            foreach (var searchModel in searchModels)
+                            {
+                                var links = new List<string>();
+
+                                int page = 0;
+
+                                while (true)
+                                {
+                                    var pageLinks = await _hhruService.GetPageLinks(searchModel.Url + _pageQuery + page, _options);
+
+                                    if(pageLinks.Count < 1)
+                                    {
+                                        break;
+                                    }
+
+                                    links.AddRange(pageLinks);
+                                    page++;
+                                }
+
+                                foreach(var link in links)
+                                {
+                                    await _hhruService.ThrowMessage(link, _options);
+                                }
+
+                                await searchModelsService.CheckLastParse(s=>s.Url == searchModel.Url);
+                            }
+
+                            await Task.Delay(TimeSpan.FromMinutes(20));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogInformation(ex, ex.Message);
+                        await _telegramService.SendMessage(ex.Message, "HHruSenderError");
+                    }
+
+                }
+            }, cancellationToken);
+
+
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            if (_driver != null)
+            {
+                _driver.Close();
+                _driver.Quit();
+            }
+            return Task.CompletedTask;
+        }
+    }
+}
