@@ -1,4 +1,5 @@
-﻿using Jobeer.Interfaces.Services;
+﻿using Jobeer.Exceptions;
+using Jobeer.Interfaces.Services;
 using Jobeer.Models;
 using Microsoft.Extensions.Logging;
 using OpenQA.Selenium;
@@ -27,43 +28,29 @@ namespace Jobeer.Services
             _logger.LogInformation(message, Microsoft.Extensions.Logging.LogLevel.Information);
         }
 
-        public async Task<List<Notification>> GetNotifications(SeleniumOptions options)
+        private async Task CheckBot(SeleniumOptions options)
         {
-            options.driver.Navigate().GoToUrl(_notificationsUrl);
+            var isBotCheck = options.driver.PageSource.Contains("не робот");
 
-            var notifs = new List<Notification>();
-
-            var notifElems = options.driver.FindElements(By.CssSelector("[data-qa=\"negotiations-item\"]"));
-
-            foreach ( var notifElem in notifElems)
+            if (isBotCheck)
             {
-                var name = notifElem.FindElement(By.CssSelector("[data-qa=\"negotiations-item-vacancy\"]")).Text;
-                var company = notifElem.FindElement(By.CssSelector("[data-qa=\"negotiations-item-company\"]")).Text;
-
-                var notification = new Notification()
-                {
-                    Name = name,
-                    Company = company,
-                };
-
-                notifs.Add(notification);
+                throw new BotExcention("Stuck on bot checker");
             }
-
-            return notifs;
-
         }
 
         public async Task<List<string>> GetPageLinks(string url, SeleniumOptions options)
         {
             options.driver.Navigate().GoToUrl(url);
 
-            var vacancies = options.driver.FindElements(By.XPath("//div[contains(@id,'a11y-main-content')]//div[contains(@class,'vacancy-search-item__card')]"));
+            await CheckBot(options);
+
+            var vacancies = options.driver.FindElements(By.CssSelector("[data-qa=\"bloko-header-2\"]"));
 
             var urls = new List<string>();
 
             foreach(var vacancy in vacancies)
             {
-                var linkElem = vacancy.FindElement(By.CssSelector("h2 a"));
+                var linkElem = vacancy.FindElement(By.CssSelector("a"));
                 var link = linkElem.GetAttribute("href");
                 urls.Add(link);
                 Log("Get " + link);
@@ -75,7 +62,10 @@ namespace Jobeer.Services
 
         public async Task ThrowMessage(string url, SeleniumOptions options)
         {
+
             options.driver.Navigate().GoToUrl(url);
+
+            await CheckBot(options);
 
             var isNotClicked = options.driver.FindElements(By.CssSelector("a[data-qa='vacancy-response-link-top']")).Count > 1;
 

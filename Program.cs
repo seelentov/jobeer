@@ -23,10 +23,8 @@ builder.Services.AddSingleton<HHruEmployeeData>();
 builder.Services.AddSingleton<TelegramService>();
 
 builder.Services.AddTransient<SearchModelsService>();
-builder.Services.AddTransient<NotificationsService>();
 
 builder.Services.AddHostedService<HHruSender>();
-builder.Services.AddHostedService<HHruWatcher>();
 
 var app = builder.Build();
 

@@ -5,6 +5,7 @@ using Jobeer.Models;
 using OpenQA.Selenium.Support.UI;
 using static Jobber.Services.SeleniumFactory;
 using System.Text.Json;
+using Jobeer.Exceptions;
 
 namespace Jobeer.Workers
 {
@@ -13,11 +14,14 @@ namespace Jobeer.Workers
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<HHruSender> _logger;
         private readonly TelegramService _telegramService;
-        private readonly ChromeDriver _driver;
+        private ChromeDriver _driver;
         private readonly HHruService _hhruService;
-        private readonly WebDriverWait _wait;
-        private readonly SeleniumOptions _options;
+        private WebDriverWait _wait;
+        private SeleniumOptions _options;
+        private readonly SeleniumFactory _seleniumFactory;
         private readonly string _pageQuery = "&page=";
+
+        private readonly bool _isLogging = true;
 
         public HHruSender(IServiceScopeFactory scopeFactory, ILogger<HHruSender> logger, SeleniumFactory seleniumFactory, HHruService hhruService, TelegramService telegramService)
         {
@@ -25,8 +29,21 @@ namespace Jobeer.Workers
             _telegramService = telegramService;
             _logger = logger;
             _hhruService = hhruService;
-            _driver = seleniumFactory.Get();
+            _seleniumFactory = seleniumFactory;
 
+
+
+            ReBuildDriver();
+        }
+
+        public void ReBuildDriver()
+        {
+            if(_driver != null)
+            {
+                _driver.Quit();
+            }
+
+            _driver = _seleniumFactory.Get();
             _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(10));
 
             _options = new SeleniumOptions()
@@ -35,7 +52,6 @@ namespace Jobeer.Workers
                 driver = _driver
             };
         }
-
         public Task StartAsync(CancellationToken cancellationToken)
         {
 
@@ -47,6 +63,7 @@ namespace Jobeer.Workers
                     {
                         using (var scope = _scopeFactory.CreateScope())
                         {
+
                             var searchModelsService = scope.ServiceProvider.GetRequiredService<SearchModelsService>();
 
                             var searchModels = (await searchModelsService.GetRange(s => s.Type == SearchModelType.HHru)).ToList();
@@ -59,32 +76,71 @@ namespace Jobeer.Workers
 
                                 while (true)
                                 {
-                                    var pageLinks = await _hhruService.GetPageLinks(searchModel.Url + _pageQuery + page, _options);
+                                    await Task.Delay(TimeSpan.FromMinutes(1));
 
-                                    if(pageLinks.Count < 1)
+                                    List<string> pageLinks = new();
+
+                                    bool error = false;
+
+                                    try
                                     {
-                                        break;
+                                        pageLinks = await _hhruService.GetPageLinks(searchModel.Url + _pageQuery + page, _options);
+                                        _logger.LogInformation("Page " + page);
+                                        if (pageLinks.Count < 1)
+                                        {
+                                            break;
+                                        }
+
+                                        links.AddRange(pageLinks);
+                                        page++;
+                                    }
+                                    catch (BotExcention ex)
+                                    {
+                                        _logger.LogInformation(ex, ex.Message);
+                                        await _telegramService.SendMessage(ex.Message, "HHruSenderBotError");
+
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogInformation(ex, ex.Message);
+                                        await _telegramService.SendMessage(ex.Message, "HHruSenderThrowError");
                                     }
 
-                                    links.AddRange(pageLinks);
-                                    page++;
+                                    
                                 }
 
                                 foreach(var link in links)
                                 {
-                                    await _hhruService.ThrowMessage(link, _options);
+                                    await Task.Delay(TimeSpan.FromMinutes(1));
+
+                                    try
+                                    {
+                                        await _hhruService.ThrowMessage(link, _options);
+                                        await _telegramService.SendMessage(link, "ThrowMessage");
+
+                                    }
+                                    catch (BotExcention ex)
+                                    {
+                                        _logger.LogInformation(ex, ex.Message);
+                                        await _telegramService.SendMessage(ex.Message, "HHruSenderBotError");
+                                    }
+
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogInformation(ex, ex.Message);
+                                        await _telegramService.SendMessage(ex.Message, "HHruSenderThrowError");
+                                    }
                                 }
 
                                 await searchModelsService.CheckLastParse(s=>s.Url == searchModel.Url);
                             }
-
-                            await Task.Delay(TimeSpan.FromMinutes(20));
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogInformation(ex, ex.Message);
                         await _telegramService.SendMessage(ex.Message, "HHruSenderError");
+                       
                     }
 
                 }
@@ -98,7 +154,6 @@ namespace Jobeer.Workers
         {
             if (_driver != null)
             {
-                _driver.Close();
                 _driver.Quit();
             }
             return Task.CompletedTask;

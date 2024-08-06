@@ -28,7 +28,7 @@ namespace Jobber.Services
             {
                 options.AddArgument("--headless=new");
             }
-            options.AddArgument("--disable-extensions");
+
             options.AddArgument("--disable-gpu");
             options.AddArgument("--disable-dev-shm-usage");
             options.AddArgument("--no-sandbox");
