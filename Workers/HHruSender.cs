@@ -94,12 +94,6 @@ namespace Jobeer.Workers
                                         links.AddRange(pageLinks);
                                         page++;
                                     }
-                                    catch (BotExcention ex)
-                                    {
-                                        _logger.LogInformation(ex, ex.Message);
-                                        await _telegramService.SendMessage(ex.Message, "HHruSenderBotError");
-
-                                    }
                                     catch (Exception ex)
                                     {
                                         _logger.LogInformation(ex, ex.Message);
@@ -119,10 +113,12 @@ namespace Jobeer.Workers
                                         await _telegramService.SendMessage(link, "ThrowMessage");
 
                                     }
-                                    catch (BotExcention ex)
+                                    catch (OutOfLimitException ex)
                                     {
                                         _logger.LogInformation(ex, ex.Message);
-                                        await _telegramService.SendMessage(ex.Message, "HHruSenderBotError");
+                                        await _telegramService.SendMessage(ex.Message, "HHruSenderOutOfLimitError");
+
+                                        await Task.Delay(TimeSpan.FromHours(12));
                                     }
 
                                     catch (Exception ex)

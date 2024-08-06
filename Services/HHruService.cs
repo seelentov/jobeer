@@ -15,17 +15,21 @@ namespace Jobeer.Services
         private readonly string _notificationsUrl;
         private readonly HHruEmployeeData _hhruEmployeeData;
         private readonly ILogger<HHruService> _logger;
-        public HHruService(HHruEmployeeData hhruEmployeeData, ILogger<HHruService> logger)
+        private readonly TelegramService _telegramService;
+        public HHruService(HHruEmployeeData hhruEmployeeData, ILogger<HHruService> logger, TelegramService telegramService)
         {
             _hhruEmployeeData = hhruEmployeeData;
+            _telegramService = telegramService;
+
             _domain = "https://hh.ru";
             _logger = logger;
             _notificationsUrl = "https://chelyabinsk.hh.ru/applicant/negotiations?state=INVITATION&filter=all&hhtmFrom=negotiation_list";
         }
 
-        public void Log(string message)
+        public async Task Log(string message)
         {
             _logger.LogInformation(message, Microsoft.Extensions.Logging.LogLevel.Information);
+            await _telegramService.SendMessage(message, "HHruService");
         }
 
         private async Task CheckBot(SeleniumOptions options)
@@ -53,7 +57,7 @@ namespace Jobeer.Services
                 var linkElem = vacancy.FindElement(By.CssSelector("a"));
                 var link = linkElem.GetAttribute("href");
                 urls.Add(link);
-                Log("Get " + link);
+                await Log("Get " + link);
 
             }
 
@@ -73,6 +77,17 @@ namespace Jobeer.Services
             {
                 var apply = options.driver.FindElement(By.CssSelector("a[data-qa='vacancy-response-link-top']"));
                 apply.Click();
+
+                await Task.Delay(4000);
+
+                var limitString = "В течение 24 часов можно совершить не более 200 откликов. Вы исчерпали лимит откликов, попробуйте отправить отклик позднее.";
+
+                var isLimit = options.driver.PageSource.Contains(limitString);
+
+                if (isLimit)
+                {
+                    throw new OutOfLimitException(limitString);
+                }
 
                 await Task.Delay(2000);
 
@@ -101,12 +116,12 @@ namespace Jobeer.Services
 
                         letterBtnApply.Click();
 
-                        Log("Throw message " + options.driver.Title);
+                        await Log("Throw message " + options.driver.Title);
                     }
                 }
                 else
                 {
-                    Log("Test on " + url);
+                    await Log("Test on " + url);
                 }
             }
         }
