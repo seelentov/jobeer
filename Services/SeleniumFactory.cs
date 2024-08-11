@@ -6,7 +6,11 @@ using OpenQA.Selenium.Support.UI;
 
 namespace Jobber.Services
 {
-    public class SeleniumFactory : IFactory<ChromeDriver>
+    public enum DriverType
+    {
+        Chrome
+    }
+    public class SeleniumFactory : IFactory<WebDriver, DriverType>
     {
         private readonly ChromeOptions _driverOptions;
         private readonly IConfiguration _configuration;
@@ -38,14 +42,22 @@ namespace Jobber.Services
             _driverOptions = options;
             _driverOptions.PageLoadStrategy = PageLoadStrategy.Eager;
         }
-        public ChromeDriver Get()
+        public WebDriver Get(DriverType source)
         {
-            return new ChromeDriver(_driverOptions);
+            switch (source)
+            {
+                case DriverType.Chrome:
+                    return new ChromeDriver(_driverOptions);
+                default:
+                    throw new NotFoundException("Неверный тип драйвера");
+
+            }
         }
+
         public struct SeleniumOptions
         {
             public WebDriverWait wait;
-            public ChromeDriver driver;
+            public WebDriver driver;
         }
 
     }

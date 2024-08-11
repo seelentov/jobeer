@@ -24,9 +24,11 @@ namespace Jobeer.Services
             {
                 var formatMessage = message.Replace("{", "[").Replace("}", "]").Replace("\"", "");
 
+                var headerRender = header == "" ? "" : header + "\n\n";
+
                 var requestUri = $"https://api.telegram.org/bot{_botToken}/sendMessage";
                 var content = new StringContent(
-                    $"{{\"chat_id\": {_chatId}, \"text\": \"{header + "\n\n" + formatMessage}\"}}",
+                    $"{{\"chat_id\": {_chatId}, \"text\": \"{headerRender}{formatMessage}\"}}",
                     Encoding.UTF8,
                     "application/json"
                 );

@@ -10,9 +10,4 @@ namespace Jobeer.Models
         public DateTime? LastParse { get; set; } = null!;
 
     }
-
-    public enum SearchModelType
-    {
-        HHru
-    }
 }

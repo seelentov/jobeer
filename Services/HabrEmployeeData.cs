@@ -4,12 +4,12 @@ using Jobeer.Interfaces.Services;
 
 namespace Jobeer.Services
 {
-    public class HHruEmployeeData : IEmployeeData
+    public class HabrEmployeeData : IEmployeeData
     {
         private readonly string _letter;
-        public HHruEmployeeData(IConfiguration configuration)
+        public HabrEmployeeData(IConfiguration configuration)
         {
-            _letter = configuration["HHLetter"];
+            _letter = configuration["HabrLetter"];
         }
 
         public string GetLetter()

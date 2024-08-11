@@ -6,44 +6,43 @@ using OpenQA.Selenium.Support.UI;
 using static Jobber.Services.SeleniumFactory;
 using System.Text.Json;
 using Jobeer.Exceptions;
+using Jobeer.Interfaces.Services;
+using OpenQA.Selenium;
 
 namespace Jobeer.Workers
 {
-    public class HHruSender: IHostedService
+    public class SenderHosted : IHostedService
     {
         private readonly IServiceScopeFactory _scopeFactory;
-        private readonly ILogger<HHruSender> _logger;
+        private readonly ILogger<SenderHosted> _logger;
         private readonly TelegramService _telegramService;
-        private ChromeDriver _driver;
-        private readonly HHruService _hhruService;
-        private WebDriverWait _wait;
-        private SeleniumOptions _options;
+        private readonly ParserFactory _parserFactory;
         private readonly SeleniumFactory _seleniumFactory;
         private readonly string _pageQuery = "&page=";
 
-        private readonly bool _isLogging = true;
+        private WebDriverWait _wait;
+        private SeleniumOptions _options;
+        private WebDriver _driver;
 
-        public HHruSender(IServiceScopeFactory scopeFactory, ILogger<HHruSender> logger, SeleniumFactory seleniumFactory, HHruService hhruService, TelegramService telegramService)
+        public SenderHosted(IServiceScopeFactory scopeFactory, ILogger<SenderHosted> logger, SeleniumFactory seleniumFactory, TelegramService telegramService, ParserFactory parserFactory)
         {
             _scopeFactory = scopeFactory;
             _telegramService = telegramService;
             _logger = logger;
-            _hhruService = hhruService;
             _seleniumFactory = seleniumFactory;
-
-
+            _parserFactory = parserFactory;
 
             ReBuildDriver();
         }
 
         public void ReBuildDriver()
         {
-            if(_driver != null)
+            if (_driver != null)
             {
                 _driver.Quit();
             }
 
-            _driver = _seleniumFactory.Get();
+            _driver = _seleniumFactory.Get(DriverType.Chrome);
             _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(10));
 
             _options = new SeleniumOptions()
@@ -66,25 +65,28 @@ namespace Jobeer.Workers
 
                             var searchModelsService = scope.ServiceProvider.GetRequiredService<SearchModelsService>();
 
-                            var searchModels = (await searchModelsService.GetRange(s => s.Type == SearchModelType.HHru)).ToList();
+                            var searchModels = (await searchModelsService.GetAll()).ToList();
 
                             foreach (var searchModel in searchModels)
                             {
+                                if (searchModel == null)
+                                {
+                                    continue;
+                                }
+
                                 var links = new List<string>();
 
-                                int page = 0;
+                                var parser = _parserFactory.Get(searchModel.Type);
+
+                                int page = searchModel.Type == SearchModelType.HHru ? 0 : 1;
 
                                 while (true)
                                 {
-                                    await Task.Delay(TimeSpan.FromMinutes(1));
-
                                     List<string> pageLinks = new();
-
-                                    bool error = false;
 
                                     try
                                     {
-                                        pageLinks = await _hhruService.GetPageLinks(searchModel.Url + _pageQuery + page, _options);
+                                        pageLinks = await parser.GetPageLinks(searchModel.Url + _pageQuery + page, _options);
                                         _logger.LogInformation("Page " + page);
                                         if (pageLinks.Count < 1)
                                         {
@@ -97,46 +99,59 @@ namespace Jobeer.Workers
                                     catch (Exception ex)
                                     {
                                         _logger.LogInformation(ex, ex.Message);
-                                        await _telegramService.SendMessage(ex.Message, "HHruSenderThrowError");
+                                        await _telegramService.SendMessage(ex.Message, "SenderThrowError");
                                     }
 
-                                    
+                                    await Task.Delay(TimeSpan.FromSeconds(30));
+
                                 }
 
-                                foreach(var link in links)
-                                {
-                                    await Task.Delay(TimeSpan.FromMinutes(1));
+                                int count = 0;
 
+                                foreach (var link in links)
+                                {
                                     try
                                     {
-                                        await _hhruService.ThrowMessage(link, _options);
+                                        await parser.ThrowMessage(link, _options);
                                         await _telegramService.SendMessage(link, "ThrowMessage");
-
                                     }
-                                    catch (OutOfLimitException ex)
+                                    catch(OutOfLimitException ex)
                                     {
                                         _logger.LogInformation(ex, ex.Message);
-                                        await _telegramService.SendMessage(ex.Message, "HHruSenderOutOfLimitError");
+                                        await _telegramService.SendMessage(ex.Message, "SenderOutOfLimit");
 
-                                        await Task.Delay(TimeSpan.FromHours(12));
+                                        var smsToDel = searchModels.Where(s=>s.Type == searchModel.Type).ToList();
+
+                                        foreach(var sm in smsToDel)
+                                        {
+                                            searchModels.Remove(sm);
+                                        }
+
+                                        continue;
                                     }
-
                                     catch (Exception ex)
                                     {
                                         _logger.LogInformation(ex, ex.Message);
-                                        await _telegramService.SendMessage(ex.Message, "HHruSenderThrowError");
+                                        await _telegramService.SendMessage(ex.Message, "SenderThrowError");
                                     }
+                                    finally
+                                    {
+                                        await _telegramService.SendMessage("Count " + count + " / " + links.Count);
+                                        count++;
+                                    }
+
+                                    await Task.Delay(TimeSpan.FromSeconds(30));
                                 }
 
-                                await searchModelsService.CheckLastParse(s=>s.Url == searchModel.Url);
+                                await searchModelsService.CheckLastParse(s => s.Url == searchModel.Url);
                             }
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogInformation(ex, ex.Message);
-                        await _telegramService.SendMessage(ex.Message, "HHruSenderError");
-                       
+                        await _telegramService.SendMessage(ex.Message, "SenderError");
+
                     }
 
                 }
